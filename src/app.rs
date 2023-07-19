@@ -82,11 +82,11 @@ impl eframe::App for TemplateApp {
  
                 });
                 if minute == 60 {
-                    dbg!(minute);
+                    //dbg!(minute);
                     hour += 1;
                     minute = 0;    
                 }
-                    dbg!(minute);
+                    //dbg!(minute);
                 
                 if hour == 24 {
                     hour = 0;
@@ -101,10 +101,13 @@ impl eframe::App for TemplateApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            //let size = (ui.available_height()).min(ui.available_width());
-            //let size = Vec2::splat(size);
+            //angle of hour arrow
+            let h_angle = (TAU * (hour % 12) as f32 / 12.0 + TAU * minute as f32 / (12.0 * 60.)) - TAU / 4.;
+            //angle for minute arrow
+            let m_angle = TAU * minute as f32 / 60.0 - TAU / 4.;
+
             let size = ui.available_size();
-            let (response, painter) = ui.allocate_painter(size, Sense::hover());
+            let (response, painter) = ui.allocate_painter(size, Sense::click_and_drag());
             let rect = response.rect;
             let c = rect.center();
             let r = rect.height() * 0.8 / 2. - 10.;
@@ -114,139 +117,35 @@ impl eframe::App for TemplateApp {
             for n in 0..60 {
                 let r_end = c + r * Vec2::angled(TAU * n as f32 / 60.0);
                 let r_start = if n % 5 == 0 {
+                    let h_text_pos = c + r * 1.1 * Vec2::angled(TAU * n as f32 / 60.0);
+                    let h = (n / 5 + 2) % 12 + 1;
+                    painter.text(h_text_pos, egui::Align2::CENTER_CENTER, h, egui::FontId::proportional(30.), Color32::BLACK);
                     c + r * 0.9 * Vec2::angled(TAU * n as f32 / 60.0)
                 } else {
                     c + r * 0.95 * Vec2::angled(TAU * n as f32 / 60.0)
                 };
                 painter.line_segment([r_start, r_end], stroke);
-            }
-            let arrow_stroke = Stroke::new(5., Color32::BLACK);
-            //angle of hour arrow
-            let h_angle = (TAU * (hour % 12) as f32 / 12.0 + TAU * minute as f32 / (12.0 * 60.)) - TAU / 4.;
-            painter.line_segment([c, c + r * 0.6 * Vec2::angled(h_angle)], arrow_stroke);
-            //angle for minute arrow
-            let m_angle = TAU * minute as f32 / 60.0 - TAU / 4.;
-            painter.line_segment([c, c + r * 0.8 * Vec2::angled(m_angle)], arrow_stroke);           
-        });
-
-    }
-}
-
-
-
-/*/// We derive Deserialize/Serialize so we can persist app state on shutdown.
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)] // if we add new fields, give them default values when deserializing old state
-pub struct TemplateApp {
-    // Example stuff:
-    label: String,
-
-    // this how you opt-out of serialization of a member
-    #[serde(skip)]
-    value: f32,
-}
-
-impl Default for TemplateApp {
-    fn default() -> Self {
-        Self {
-            // Example stuff:
-            label: "Hello World!".to_owned(),
-            value: 2.7,
-        }
-    }
-}
-
-impl TemplateApp {
-    /// Called once before the first frame.
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // This is also where you can customize the look and feel of egui using
-        // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
-
-        // Load previous app state (if any).
-        // Note that you must enable the `persistence` feature for this to work.
-        if let Some(storage) = cc.storage {
-            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-        }
-
-        Default::default()
-    }
-}
-
-impl eframe::App for TemplateApp {
-    /// Called by the frame work to save state before shutdown.
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, eframe::APP_KEY, self);
-    }
-
-    /// Called each time the UI needs repainting, which may be many times per second.
-    /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let Self { label, value } = self;
-
-        // Examples of how to create different panels and windows.
-        // Pick whichever suits you.
-        // Tip: a good default choice is to just keep the `CentralPanel`.
-        // For inspiration and more examples, go to https://emilk.github.io/egui
-
-        #[cfg(not(target_arch = "wasm32"))] // no File->Quit on web pages!
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            // The top panel is often a good place for a menu bar:
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Quit").clicked() {
-                        _frame.close();
-                    }
-                });
-            });
-        });
-
-        egui::SidePanel::left("side_panel").show(ctx, |ui| {
-            ui.heading("Side Panel");
-
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(label);
-            });
-
-            ui.add(egui::Slider::new(value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                *value += 1.0;
+                let m = (n + 14) % 60 + 1;
+                let m_text_pos = c + r * 0.87 * Vec2::angled(TAU * n as f32 / 60.0);
+                painter.text(m_text_pos, egui::Align2::CENTER_CENTER, m, egui::FontId::proportional(14.), Color32::BLACK);
             }
 
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.label("powered by ");
-                    ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-                    ui.label(" and ");
-                    ui.hyperlink_to(
-                        "eframe",
-                        "https://github.com/emilk/egui/tree/master/crates/eframe",
-                    );
-                    ui.label(".");
-                });
-            });
+            let h_arrow_stroke = Stroke::new(10., Color32::BLACK);
+            let m_arrow_stroke = Stroke::new(5., Color32::BLACK);
+            let h_rect = egui::Rect::from_center_size( c + r * 0.6 * Vec2::angled(h_angle), vec2(10., 10.));
+            let m_rect = egui::Rect::from_center_size( c + r * 0.8 * Vec2::angled(m_angle), vec2(10., 10.));
+            
+            painter.line_segment([c, c + r * 0.6 * Vec2::angled(h_angle)], h_arrow_stroke);
+            painter.line_segment([c, c + r * 0.8 * Vec2::angled(m_angle)], m_arrow_stroke);
+
+            if response.hovered() {
+                painter.rect_stroke(h_rect, 0., Stroke::new(5., Color32::BLUE));
+                painter.rect_stroke(m_rect, 0., Stroke::new(5., Color32::BLUE));
+            }           
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-
-            ui.heading("eframe template");
-            ui.hyperlink("https://github.com/emilk/eframe_template");
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/master/",
-                "Source code."
-            ));
-            egui::warn_if_debug_build(ui);
-        });
-
-        if false {
-            egui::Window::new("Window").show(ctx, |ui| {
-                ui.label("Windows can be moved by dragging them.");
-                ui.label("They are automatically sized based on contents.");
-                ui.label("You can turn on resizing and scrolling if you like.");
-                ui.label("You would normally choose either panels OR windows.");
-            });
-        }
     }
-}*/
+}
+
+
+
