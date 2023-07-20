@@ -158,20 +158,24 @@ impl eframe::App for TemplateApp {
         }
 
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
-            ui.heading("What time is it now?");
+            ui.heading("What time is it?");
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                 
                     let size = (width / 20., height / 10.);
                     ui.add_sized(size, egui::DragValue::new(&mut hour)
                         .speed(0.1)
-                        .clamp_range(0..=24));
+                        .clamp_range(0..=24)
+                        .custom_formatter(|h, _| format!("{h:02}"))
+                    );
                     ui.label("  :  ");
                     ui.add_sized(size, egui::DragValue::new(&mut minute)
                         .speed(0.1)
-                        .clamp_range(-1..=60));
- 
+                        .clamp_range(-1..=60)
+                        .custom_formatter(|m, _| format!("{m:02}"))
+                    );
                 });
+
                 if minute == 60 {
                     //dbg!(minute);
                     self.change_hour = Hour::Next;
