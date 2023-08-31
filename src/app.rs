@@ -1,5 +1,5 @@
 use time::{Time, OffsetDateTime};
-use egui::{Color32, Vec2, Sense, vec2, Stroke, Pos2, Painter, Ui};
+use egui::{Color32, Vec2, Sense, vec2, Stroke, Pos2, Painter};
 use std::f32::consts::TAU;
 use std::ops::RangeInclusive;
 
@@ -7,27 +7,29 @@ use std::ops::RangeInclusive;
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct TemplateApp {
     time: Time,
-    hour_arrow_pos: Option<f32>,
+    //hour_arrow_pos: Option<f32>,
     //minute_arrow_pos: Option<Pos2>,
-    minute_arrow_pos: Option<f32>,
-    change_hour: Hour,
+    minute_arrow_angle: Option<f32>,
+    //change_hour: Hour,
+    prev_raw_minute: Option<i32>,
 }
 
 impl Default for TemplateApp {
     fn default() -> Self {
         Self {
             time: OffsetDateTime::now_local().unwrap_or(OffsetDateTime::now_utc()).time(),
-            hour_arrow_pos: None,
-            minute_arrow_pos: None,
-            change_hour: Hour::Same,
+            //hour_arrow_pos: None,
+            minute_arrow_angle: None,
+            //change_hour: Hour::Same,
+            prev_raw_minute: None,
         }
     }
 }
 
 impl TemplateApp {
-    
+
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        
+
         if let Some(storage) = cc.storage {
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
@@ -38,18 +40,25 @@ impl TemplateApp {
     fn draw_clock_face(painter: &Painter, c: Pos2, r: f32) {
         painter.circle_stroke(c, r, (10., Color32::BLACK));
         painter.circle_filled(c, 10., Color32::BLACK);
+
+            // TODO: А зачем тут отступ?
             let stroke = Stroke::new(1., Color32::BLACK);
             for n in 0..60 {
                 let r_end = c + r * Vec2::angled(TAU * n as f32 / 60.0);
                 let r_start = if n % 5 == 0 {
+                    // TODO: так тоже не надо делать - эти вычисления не касаются иниуциализации переменной r_start
                     let h_text_pos = c + r * 1.1 * Vec2::angled(TAU * n as f32 / 60.0);
                     let h = (n / 5 + 2) % 12 + 1;
+
+                    // TODO: вот вообще плохо так делать - ты рисуешь текст в блоке присвоения значения переменной
                     painter.text(h_text_pos, egui::Align2::CENTER_CENTER, h, egui::FontId::proportional(30.), Color32::BLACK);
                     c + r * 0.9 * Vec2::angled(TAU * n as f32 / 60.0)
                 } else {
                     c + r * 0.95 * Vec2::angled(TAU * n as f32 / 60.0)
                 };
+
                 painter.line_segment([r_start, r_end], stroke);
+
                 let m = (n + 14) % 60 + 1;
                 let m_text_pos = c + r * 0.87 * Vec2::angled(TAU * n as f32 / 60.0);
                 painter.text(m_text_pos, egui::Align2::CENTER_CENTER, m, egui::FontId::proportional(14.), Color32::BLACK);
@@ -57,17 +66,17 @@ impl TemplateApp {
     }
 
     /*fn draw_minute_arrow(
-        &mut self, 
-        ui: &mut Ui, 
-        painter: &Painter, 
-        c: Pos2, 
-        r: f32, 
+        &mut self,
+        ui: &mut Ui,
+        painter: &Painter,
+        c: Pos2,
+        r: f32,
         mut minute: i8) -> (Hour, i8) {
-        
+
         let mut m_angle = TAU * minute as f32 / 60.0 - TAU / 4.;
         let m_rect = egui::Rect::from_center_size( c + r * 0.8 * Vec2::angled(m_angle), vec2(10., 10.));
         let mut change_hour = Hour::Same;
-        
+
         if let Some(angle) = self.minute_arrow_pos {
             m_angle = angle;
             let mut new_minute = ((m_angle + TAU / 4.) * 60. / TAU).floor() as i8;
@@ -77,12 +86,12 @@ impl TemplateApp {
             }
             if new_minute == 0 {
                 if minute <= 59 && minute >= 55 {
-                    change_hour = Hour::Next; 
+                    change_hour = Hour::Next;
                 } else if minute >= 1 && minute <= 5 {
                     change_hour = Hour::Previous;
                 }
             }
-            minute = new_minute as i8;         
+            minute = new_minute as i8;
         }
 
         let m_arrow_stroke = Stroke::new(5., Color32::BLACK);
@@ -108,12 +117,12 @@ impl TemplateApp {
     }*/
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+/*#[derive(Debug, serde::Deserialize, serde::Serialize)]
 enum Hour {
     Same,
     Next,
     Previous,
-}
+}*/
 
 impl eframe::App for TemplateApp {
     /// Called by the frame work to save state before shutdown.
@@ -142,63 +151,86 @@ impl eframe::App for TemplateApp {
         style.drag_value_text_style = egui::TextStyle::Name("DragValue".into());
         ctx.set_style(style);
 
-        let mut hour = self.time.hour() as i8;
-        let mut minute = self.time.minute() as i8;
+        let mut raw_hour = self.time.hour() as i32;
+        let mut raw_minute = self.time.minute() as i32;
         let mut set_local_time = false;
-
-        match self.change_hour {
-            Hour::Next => hour += 1,
-            Hour::Previous => hour -=1,
-            Hour::Same => {},
-        }
-        self.change_hour = Hour::Same;
-
-        if hour == 24 {
-            hour = 0;
-        }
 
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
             ui.heading("What time is it?");
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                
                     let size = (width / 20., height / 10.);
-                    ui.add_sized(size, egui::DragValue::new(&mut hour)
+
+                    ui.add_sized(size, egui::DragValue::new(&mut raw_hour)
                         .speed(0.1)
-                        .clamp_range(0..=24)
+                        //.clamp_range(0..=24)
                         .custom_formatter(|h, _| format!("{h:02}"))
                     );
+
                     ui.label("  :  ");
-                    ui.add_sized(size, egui::DragValue::new(&mut minute)
+
+                    ui.add_sized(size, egui::DragValue::new(&mut raw_minute)
                         .speed(0.1)
-                        .clamp_range(-1..=60)
+                        //.clamp_range(-1..=60)
                         .custom_formatter(|m, _| format!("{m:02}"))
                     );
                 });
 
-                if minute == 60 {
-                    //dbg!(minute);
-                    self.change_hour = Hour::Next;
-                    minute = 0;    
-                } else if minute == -1 {
-                     //dbg!(minute);
-                    self.change_hour = Hour::Previous;
-                    minute = 59;
-                }
-                    //dbg!(minute)
-    
                 if ui.button("time now").clicked() {
                     set_local_time = true;
                 }
             });
         });
 
+        // TODO: попробовать перенести вверх или вниз
+        let mut norm_hour = raw_hour.rem_euclid(24);
+        let mut norm_minute = raw_minute.rem_euclid(60);
+
+        if let Some(prev_raw_minute) = self.prev_raw_minute {
+            let prev_norm_minute = prev_raw_minute.rem_euclid(60);
+            if prev_norm_minute != norm_minute {
+                // dbg!(raw_minute);
+                // dbg!(prev_norm_minute);
+                // dbg!(prev_raw_minute);
+                // dbg!(prev_raw_minute - raw_minute);
+                self.prev_raw_minute = Some(raw_minute);
+
+                // инициализированы переменные предыдущего значения времени
+                // и значение тянущейся переменной минут
+                if raw_minute.abs_diff(prev_raw_minute) < 30 {
+                    // изменение времени за тик больше 30 секунд
+                    if raw_minute < prev_raw_minute
+                        && norm_minute > prev_norm_minute {
+                            norm_hour = (norm_hour - 1).rem_euclid(24);
+                    }
+                    if raw_minute > prev_raw_minute
+                        && norm_minute < prev_norm_minute {
+                            norm_hour = (norm_hour + 1).rem_euclid(24);
+                    }
+                }
+            }
+        }
+        else {
+            self.prev_raw_minute = Some(raw_minute);
+        }
+
+            // TODO: удалить
+        // self.prev_minute = Some(new_norm_minute);
+        norm_hour = norm_hour.rem_euclid(24);
+
+
         egui::CentralPanel::default().show(ctx, |ui| {
-            //angle of hour arrow
-            let h_angle = (TAU * (hour % 12) as f32 / 12.0 + TAU * minute as f32 / (12.0 * 60.)) - TAU / 4.;
-            
+                //angle of hour arrow
+            // let h_angle = (TAU * (hour % 12) as f32 / 12.0
+            //     + TAU * minute as f32 / (12.0 * 60.))
+            //     - TAU / 4.;
+            let h_angle = TAU * (norm_hour.rem_euclid(12) as f32) / 12.0
+                + TAU * (norm_minute as f32) / 60.0 / 12.0
+                - TAU / 4.;
+
             //angle for minute arrow
-            let mut m_angle = TAU * minute as f32 / 60.0 - TAU / 4.;
+            // let mut m_angle = TAU * minute as f32 / 60.0 - TAU / 4.;
+            let mut m_angle = TAU * (norm_minute as f32) / 60.0 - TAU / 4.;
 
             let size = ui.available_size();
             let (response, painter) = ui.allocate_painter(size, Sense::click_and_drag());
@@ -206,8 +238,10 @@ impl eframe::App for TemplateApp {
             let c = rect.center();
             let r = rect.height() * 0.8 / 2. - 10.;
 
+            // TODO: дать нормальные имена переменным c и r (center radius)
             Self::draw_clock_face(&painter, c, r);
 
+            // TODO: часовая стрелка
             let h_arrow_stroke = Stroke::new(10., Color32::BLACK);
             painter.line_segment([c, c + r * 0.6 * Vec2::angled(h_angle)], h_arrow_stroke);
 
@@ -219,32 +253,42 @@ impl eframe::App for TemplateApp {
             change_hour = new_hour;
             minute = new_minute;*/
 
-            if let Some(angle) = self.minute_arrow_pos {
+            if let Some(angle) = self.minute_arrow_angle {
                 m_angle = angle;
-                let mut new_minute = ((m_angle + TAU / 4.) * 60. / TAU).floor() as i8;
-                if new_minute == 60 {
-                    new_minute = 0;
-                }
+                norm_minute = ((m_angle + TAU / 4.) * 60. / TAU).floor() as i32;
 
-                
+
                 //match if minute arrow passes zero clockwise or counterclockwise
-                let range_before = RangeInclusive::new(55i8, 59);
-                let range_after = RangeInclusive::new(1i8, 5);
-                if (range_after.contains(&new_minute) || new_minute == 0) 
-                        && range_before.contains(&minute) {
-                    self.change_hour = Hour::Next;
+                let range_before = RangeInclusive::new(45i32, 59);
+                let range_after = RangeInclusive::new(1i32, 15);
+                if (range_after.contains(&norm_minute) || norm_minute == 0)
+                         && range_before.contains(&raw_minute) {
+                     dbg!("---------------");
+                     dbg!(raw_minute);
+                     dbg!(norm_minute);
+
+                     //self.change_hour = Hour::Next;
+                     norm_hour = norm_hour + 1;
+                    dbg!("inc hour");
                 }
-                if (range_before.contains(&new_minute) || new_minute == 0) 
-                        && range_after.contains(&minute) {
-                            self.change_hour = Hour::Previous;
+                 if (range_before.contains(&norm_minute) || norm_minute == 0)
+                         && range_after.contains(&raw_minute) {
+                     dbg!("---------------");
+                     dbg!(raw_minute);
+                     dbg!(norm_minute);
+
+                     //self.change_hour = Hour::Previous;
+                     norm_hour = norm_hour - 1;
+                     dbg!("dec hour");
                 }
 
-                minute = new_minute as i8;         
+                //raw_minute = norm_minute;
             }
 
+            // TODO: минутная стрелка
             let m_arrow_stroke = Stroke::new(5., Color32::BLACK);
             painter.line_segment([c, c + r * 0.8 * Vec2::angled(m_angle)], m_arrow_stroke);
-            
+
             let m_rect = egui::Rect::from_center_size( c + r * 0.8 * Vec2::angled(m_angle), vec2(10., 10.));
             let m_arrow_resp = ui.allocate_rect(m_rect, Sense::drag());
 
@@ -252,27 +296,30 @@ impl eframe::App for TemplateApp {
                 painter.rect_stroke(m_rect, 0., Stroke::new(5., Color32::BLUE));
             }
 
-            //if h_arrow_resp.hovered() {
-                //painter.rect_stroke(h_rect, 0., Stroke::new(5., Color32::BLUE));
-            //}
-
             if m_arrow_resp.dragged() {
                 let pos = m_rect.center() + m_arrow_resp.drag_delta();
                 let mut angle = (pos - c).angle();
                 if angle < - TAU / 4. {
                     angle = TAU + angle;
                 }
-                self.minute_arrow_pos = Some(angle);
+                self.minute_arrow_angle = Some(angle);
+                // norm_minute = ((angle + TAU / 4.) * 60. / TAU).floor() as i32;
+                // dbg!("---------------");
+                // dbg!(angle);
+                // dbg!(norm_minute);
             } else {
-                self.minute_arrow_pos = None;
-            }      
+                self.minute_arrow_angle = None;
+            }
         });
 
-        self.time = Time::from_hms(hour as u8, minute as u8, 0).unwrap();
-        if set_local_time {
-            self.time = OffsetDateTime::now_local().unwrap_or(OffsetDateTime::now_utc()).time();        
-        }
+        norm_hour = norm_hour.rem_euclid(24);
+        // self.prev_minute = Some(new_norm_minute);
 
+        self.time = if set_local_time {
+            OffsetDateTime::now_local().unwrap_or(OffsetDateTime::now_utc()).time()
+        } else {
+            Time::from_hms(norm_hour as u8, norm_minute as u8, 0).unwrap()
+        };
     }
 }
 
