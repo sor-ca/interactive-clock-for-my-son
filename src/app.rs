@@ -5,8 +5,13 @@ use std::ops::RangeInclusive;
 use reqwest::Client;
 use serde_derive::{Deserialize, Serialize};
 use std::sync::mpsc::{Receiver, Sender};
-use std::time::Duration;
-use tokio::runtime::Runtime;
+
+#[derive(Deserialize, Serialize, Debug)]
+struct SavedTime {
+    id: usize,
+    time: String, 
+}
+
 
 #[derive(Deserialize, Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -133,8 +138,8 @@ impl TemplateApp {
 fn post_time(msg: String, tx: Sender<String>, ctx: egui::Context) {
     tokio::spawn(async move {
         // Send a request with an increment value.
-        let body: HttpbinJson = Client::default()
-            .post("localhost:8080/time")
+        let body: usize = Client::default()
+            .post("http://127.0.0.1:8080/time")
             //.json(&Body { incr })
             .query(&[("time", msg)])
             .send()
@@ -145,20 +150,43 @@ fn post_time(msg: String, tx: Sender<String>, ctx: egui::Context) {
             .expect("Unable to parse response");
 
         // After parsing the response, notify the GUI thread of the increment value.
-        let _ = tx.send(body.json.msg);
+        let _ = tx.send(body.to_string());
         ctx.request_repaint();
     });
 }
 
-#[derive(Deserialize, Serialize)]
+fn get_time_list(tx: Sender<String>, ctx: egui::Context) {
+    tokio::spawn(async move {
+        // Send a request with an increment value.
+        let body: String = Client::default()
+            .get("http://127.0.0.1:8080/times")
+            .send()
+            .await
+            .expect("Unable to send request")
+            .text()
+            .await
+            .expect("Unable to parse response");
+
+        dbg!(&body);
+
+        // After parsing the response, notify the GUI thread of the increment value.
+        let _ = tx.send(body);
+        ctx.request_repaint();
+    });
+}
+
+
+
+/*#[derive(Deserialize, Serialize)]
 struct HttpbinJson {
-    json: Body,
+    //json: Body,
+    json: usize,
 }
 
 #[derive(Deserialize, Serialize)]
 struct Body {
     msg: String,
-}
+}*/
 
 /*#[derive(Debug, serde::Deserialize, serde::Serialize)]
 enum Hour {
@@ -181,7 +209,9 @@ impl eframe::App for TemplateApp {
         let height = ctx.screen_rect().height();
 
         if let Ok(msg) = self.rx.try_recv() {
-            dbg!(&msg);
+            //dbg!(&msg);
+            let list: Vec<SavedTime> = serde_json::from_str(&msg).expect("cant parse msg");
+            dbg!(&list);
         }
 
         use egui::FontFamily::Proportional;
@@ -226,9 +256,13 @@ impl eframe::App for TemplateApp {
                 if ui.button("time now").clicked() {
                     set_local_time = true;
                 }
-                ui.label("Press the button to initiate an HTTP request.");
-                if ui.button("save current time").clicked() {
+
+                if ui.button("save time in db").clicked() {
                     post_time(self.time.to_string(), self.tx.clone(), ctx.clone());
+                }
+
+                if ui.button("time list").clicked() {
+                    get_time_list(self.tx.clone(), ctx.clone());
                 }
                    
             });
