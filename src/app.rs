@@ -2,10 +2,21 @@ use time::{Time, OffsetDateTime};
 use egui::{Color32, Vec2, Sense, vec2, Stroke, Pos2, Painter};
 use std::f32::consts::TAU;
 use std::ops::RangeInclusive;
+use reqwest::Client;
+use serde_derive::{Deserialize, Serialize};
+use std::sync::mpsc::{Receiver, Sender};
+use std::time::Duration;
+use tokio::runtime::Runtime;
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct TemplateApp {
+    // Sender/Receiver for async notifications.
+    #[serde(skip)]
+    tx: Sender<String>,
+    #[serde(skip)]
+    rx: Receiver<String>,
+
     time: Time,
     //hour_arrow_pos: Option<f32>,
     //minute_arrow_pos: Option<Pos2>,
@@ -16,7 +27,10 @@ pub struct TemplateApp {
 
 impl Default for TemplateApp {
     fn default() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
         Self {
+            tx,
+            rx,
             time: OffsetDateTime::now_local().unwrap_or(OffsetDateTime::now_utc()).time(),
             //hour_arrow_pos: None,
             minute_arrow_angle: None,
@@ -40,29 +54,28 @@ impl TemplateApp {
     fn draw_clock_face(painter: &Painter, c: Pos2, r: f32) {
         painter.circle_stroke(c, r, (10., Color32::BLACK));
         painter.circle_filled(c, 10., Color32::BLACK);
+        // TODO: А зачем тут отступ?
+        let stroke = Stroke::new(1., Color32::BLACK);
+        for n in 0..60 {
+            let r_end = c + r * Vec2::angled(TAU * n as f32 / 60.0);
+            let r_start = if n % 5 == 0 {
+                // TODO: так тоже не надо делать - эти вычисления не касаются иниуциализации переменной r_start
+                let h_text_pos = c + r * 1.1 * Vec2::angled(TAU * n as f32 / 60.0);
+                let h = (n / 5 + 2) % 12 + 1;
 
-            // TODO: А зачем тут отступ?
-            let stroke = Stroke::new(1., Color32::BLACK);
-            for n in 0..60 {
-                let r_end = c + r * Vec2::angled(TAU * n as f32 / 60.0);
-                let r_start = if n % 5 == 0 {
-                    // TODO: так тоже не надо делать - эти вычисления не касаются иниуциализации переменной r_start
-                    let h_text_pos = c + r * 1.1 * Vec2::angled(TAU * n as f32 / 60.0);
-                    let h = (n / 5 + 2) % 12 + 1;
+                // TODO: вот вообще плохо так делать - ты рисуешь текст в блоке присвоения значения переменной
+                painter.text(h_text_pos, egui::Align2::CENTER_CENTER, h, egui::FontId::proportional(30.), Color32::BLACK);
+                c + r * 0.9 * Vec2::angled(TAU * n as f32 / 60.0)
+            } else {
+                c + r * 0.95 * Vec2::angled(TAU * n as f32 / 60.0)
+            };
 
-                    // TODO: вот вообще плохо так делать - ты рисуешь текст в блоке присвоения значения переменной
-                    painter.text(h_text_pos, egui::Align2::CENTER_CENTER, h, egui::FontId::proportional(30.), Color32::BLACK);
-                    c + r * 0.9 * Vec2::angled(TAU * n as f32 / 60.0)
-                } else {
-                    c + r * 0.95 * Vec2::angled(TAU * n as f32 / 60.0)
-                };
+            painter.line_segment([r_start, r_end], stroke);
 
-                painter.line_segment([r_start, r_end], stroke);
-
-                let m = (n + 14) % 60 + 1;
-                let m_text_pos = c + r * 0.87 * Vec2::angled(TAU * n as f32 / 60.0);
-                painter.text(m_text_pos, egui::Align2::CENTER_CENTER, m, egui::FontId::proportional(14.), Color32::BLACK);
-            }
+            let m = (n + 14) % 60 + 1;
+            let m_text_pos = c + r * 0.87 * Vec2::angled(TAU * n as f32 / 60.0);
+            painter.text(m_text_pos, egui::Align2::CENTER_CENTER, m, egui::FontId::proportional(14.), Color32::BLACK);
+        }        
     }
 
     /*fn draw_minute_arrow(
@@ -117,6 +130,36 @@ impl TemplateApp {
     }*/
 }
 
+fn post_time(msg: String, tx: Sender<String>, ctx: egui::Context) {
+    tokio::spawn(async move {
+        // Send a request with an increment value.
+        let body: HttpbinJson = Client::default()
+            .post("localhost:8080/time")
+            //.json(&Body { incr })
+            .query(&[("time", msg)])
+            .send()
+            .await
+            .expect("Unable to send request")
+            .json()
+            .await
+            .expect("Unable to parse response");
+
+        // After parsing the response, notify the GUI thread of the increment value.
+        let _ = tx.send(body.json.msg);
+        ctx.request_repaint();
+    });
+}
+
+#[derive(Deserialize, Serialize)]
+struct HttpbinJson {
+    json: Body,
+}
+
+#[derive(Deserialize, Serialize)]
+struct Body {
+    msg: String,
+}
+
 /*#[derive(Debug, serde::Deserialize, serde::Serialize)]
 enum Hour {
     Same,
@@ -136,6 +179,10 @@ impl eframe::App for TemplateApp {
         //let Self { time, hour_arrow_pos, minute_arrow_pos } = self;
         let width = ctx.screen_rect().width();
         let height = ctx.screen_rect().height();
+
+        if let Ok(msg) = self.rx.try_recv() {
+            dbg!(&msg);
+        }
 
         use egui::FontFamily::Proportional;
         use egui::FontId;
@@ -179,6 +226,11 @@ impl eframe::App for TemplateApp {
                 if ui.button("time now").clicked() {
                     set_local_time = true;
                 }
+                ui.label("Press the button to initiate an HTTP request.");
+                if ui.button("save current time").clicked() {
+                    post_time(self.time.to_string(), self.tx.clone(), ctx.clone());
+                }
+                   
             });
         });
 
