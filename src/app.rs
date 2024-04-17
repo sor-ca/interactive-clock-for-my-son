@@ -12,7 +12,6 @@ pub struct TemplateApp {
     minute_arrow_pos: Option<f32>,
     change_hour: Hour,
     prev_raw_minute: Option<i32>,
-    pixels_per_point: Option<f32>,
 }
 
 impl Default for TemplateApp {
@@ -25,7 +24,6 @@ impl Default for TemplateApp {
             minute_arrow_pos: None,
             change_hour: Hour::Same,
             prev_raw_minute: None,
-            pixels_per_point: None,
         }
     }
 }
@@ -150,14 +148,6 @@ impl eframe::App for TemplateApp {
         let width = ctx.screen_rect().width();
         let height = ctx.screen_rect().height();
 
-        let old_pixels_per_point = if let Some(pixels) = self.pixels_per_point {
-            pixels
-        } else {
-            ctx.pixels_per_point()
-        };
-        ctx.set_pixels_per_point(old_pixels_per_point);
-        let mut pixels_per_point = old_pixels_per_point;
-
         use egui::FontFamily::Proportional;
         use egui::FontId;
         use egui::TextStyle::*;
@@ -200,11 +190,6 @@ impl eframe::App for TemplateApp {
                             //.clamp_range(-1..=60)
                             .custom_formatter(|m, _| format!("{m:02}")),
                     );
-
-                    ui.add(
-                        egui::Slider::new(&mut pixels_per_point, 0.5..=3.0)
-                            .text("pixels per point"),
-                    );
                 });
 
                 if ui.button("time now").clicked() {
@@ -213,14 +198,6 @@ impl eframe::App for TemplateApp {
                 egui::widgets::global_dark_light_mode_buttons(ui);
             });
         });
-
-        //dbg!(ctx.pixels_per_point());
-        if old_pixels_per_point != pixels_per_point {
-            self.pixels_per_point = Some(pixels_per_point);
-        }
-        if pixels_per_point == 3. || pixels_per_point == 0.5 {
-            self.pixels_per_point = None;
-        }
 
         // TODO: попробовать перенести вверх или вниз
         let mut norm_hour = raw_hour.rem_euclid(24);
