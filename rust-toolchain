@@ -8,3 +8,4 @@
 channel = "1.74.0"
 components = [ "rustfmt", "clippy" ]
 targets = [ "wasm32-unknown-unknown" ]
+
