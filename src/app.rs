@@ -90,7 +90,6 @@ impl eframe::App for TemplateApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        dbg!("update");
         let width = ctx.screen_rect().width();
         let height = ctx.screen_rect().height();
 
